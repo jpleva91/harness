@@ -7,3 +7,5 @@
 - **Ambient state**: anything the harness would read without being handed it: home directory, global config, environment variables, memory files. The harness reads none.
 - **Safe**: deny unless allowed, sandbox on, network off, until the builder loosens it. The harness contains a misbehaving or prompt-injected agent and keeps tenants' state apart. It is not a boundary against hostile tenant code.
 - **Durable approvals**: approvals and sessions that survive a crash or resume. First claim on v1 scope after the wedge.
+- **Core**: the Rust implementation of the harness. It holds all behavior: loop, permissions, sandbox, sessions and context. Internal in v1.
+- **Binding**: the TypeScript or Python package a builder imports. It is thin: typed wrappers over the core plus the builder's own callbacks.
