@@ -22,7 +22,7 @@ Preconditions:
 
 - Baseline from the [index](./README.md).
 
-- **Run both bindings.** `verify.sh drive`. Node ends with `14/14 passed`, Python with `15/15 passed`, both with exit 0.
+- **Run both bindings.** `verify.sh drive`. Each binding ends with `15/15 passed` and exit 0.
 - **cb-async.** Line `PASS  async tool + async approval  {"sum":5}`. In the trace, the events above it are, in order: `run_started turn_started text_delta text_delta tool_call approval_asked approval_answered tool_result turn_finished turn_started text_delta turn_finished run_finished`, and `tool_result` has `"ok":true,"output":"{\"sum\":5}"`.
 - **cb-sync.** Line `PASS  sync callbacks`.
 - **cb-tool-error.** Line `PASS  tool throws  kaboom` (Python: `tool raises  RuntimeError: kaboom`). The trace above the line shows a `tool_result` with `"ok":false`, then a second `tool_result` with `"ok":true`, then `run_finished` with `"reason":"completed"`.

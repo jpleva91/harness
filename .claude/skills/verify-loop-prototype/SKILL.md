@@ -5,7 +5,7 @@ description: "Drive the harness loop prototype (prototype/loop-ffi) the way an a
 
 # Verify the loop prototype
 
-The prototype is a library, not an app. Its user is an agent builder whose own script imports a binding, starts sessions, hands in a tool and an approval handler, and reads events. So the user path is a host script: `prototype/loop-ffi/node/demo.mjs` (through `node/harness.mjs`) and `prototype/loop-ffi/py/demo.py` (through `py/python/harness_proto`). Both run the same scenarios against a scripted model (14 in Node, 15 in Python, which adds a dropped-session scenario), then exit with one session abandoned on purpose.
+The prototype is a library, not an app. Its user is an agent builder whose own script imports a binding, starts sessions, hands in a tool and an approval handler, and reads events. So the user path is a host script: `prototype/loop-ffi/node/demo.mjs` (through `node/harness.mjs`) and `prototype/loop-ffi/py/demo.py` (through `py/python/harness_proto`). Both run the same 15 scenarios against a scripted model, then exit with one session abandoned on purpose. Node must run with `--expose-gc`, which the helper passes: the dropped-session scenario needs to force a collection and prints `SKIP` without it.
 
 There is no model provider, network, port, database or auth. Two runs can go side by side; only `cargo build` takes a lock.
 
@@ -38,9 +38,9 @@ Read-only. Prints `OK`, `MISSING` or `STALE` per tool and per binding, and the g
 .claude/skills/verify-loop-prototype/verify.sh drive node   # or: py
 ```
 
-Each binding prints one `PASS` or `FAIL` line per scenario and a last line `14/14 passed (...)` for Node or `15/15 passed (...)` for Python. Exit code 0 means every scenario passed and the process exited by itself. Exit 124 means the process hung and was killed after 120 seconds, which is itself a finding: the last scenario abandons a session, and the process must still exit.
+Each binding prints one `PASS` or `FAIL` line per scenario and a last line `15/15 passed (...)`. Exit code 0 means every scenario passed and the process exited by itself. Exit 124 means the process hung and was killed after 120 seconds, which is itself a finding: the last scenario abandons a session, and the process must still exit.
 
-To drive something the scenarios do not cover, write a host script next to the demo that imports `startSession` (Node) or `start_session` (Python) and run it with `node` or `python3`. Use the wrapper, not the native module: the wrapper is the surface a builder would get. Which scenario proves which feature is in [`features/`](features/README.md).
+To drive something the scenarios do not cover, write a host script next to the demo that imports `startSession` (Node) or `start_session` (Python) and run it with `node --expose-gc` or `python3`. Use the wrapper, not the native module: the wrapper is the surface a builder would get. Which scenario proves which feature is in [`features/`](features/README.md).
 
 ## Evidence
 

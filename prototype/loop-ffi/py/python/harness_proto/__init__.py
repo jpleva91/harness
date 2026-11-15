@@ -29,16 +29,18 @@ def start_session(turns, tools=None, approve=lambda req: True, delta_delay_ms=0,
     """Call from inside a running asyncio loop. Callbacks run on that loop."""
     tools = tools or {}
     inflight = {}  # call id -> asyncio.Task
-    # A session makes one host call at a time and ids only grow, so an abort for an id not yet
-    # seen is early, and an abort for an older id is late and can be ignored.
+    # Ids only grow within a session, so an abort for an id not yet seen is early and is kept
+    # until that call arrives; an abort for an older id is late and is ignored.
     last_started = 0
-    early_abort = 0
+    early_aborts = set()
 
     def hosted(fn):
         async def run(call_id, name, input_json):
             nonlocal last_started
             last_started = call_id
-            if early_abort == call_id:
+            aborted = call_id in early_aborts
+            early_aborts.difference_update([i for i in early_aborts if i <= call_id])
+            if aborted:
                 raise asyncio.CancelledError
             inflight[call_id] = asyncio.current_task()
             try:
@@ -54,12 +56,11 @@ def start_session(turns, tools=None, approve=lambda req: True, delta_delay_ms=0,
         return bool(await _maybe_await(approve({"name": name, "input": input})))
 
     def abort(call_id):
-        nonlocal early_abort
         task = inflight.get(call_id)
         if task:
             task.cancel()
         elif call_id > last_started:
-            early_abort = call_id
+            early_aborts.add(call_id)
 
     config = {"turns": turns, "delta_delay_ms": delta_delay_ms, "event_capacity": event_capacity}
     return Session(_native.Session.start(json.dumps(config), hosted(call_tool), hosted(ask), abort))

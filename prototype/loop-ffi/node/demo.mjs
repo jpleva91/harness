@@ -194,7 +194,26 @@ const call = (name, input = {}, extra = {}) => ({ name, input, ...extra });
   check('immediate abort', !ran && evs.find((e) => e.type === 'tool_result').output === 'timed out');
 }
 
-// 15. abandoned session: never drained, never cancelled. The process must still exit.
+// 15. dropped session: collected with a read still pending, the pending approval is aborted
+if (globalThis.gc) {
+  let aborted = false;
+  await (async () => {
+    const s = startSession({
+      turns: [{ tool_calls: [call('echo')] }],
+      tools: { echo: (i) => i },
+      approve: (_req, signal) => new Promise(() => signal.addEventListener('abort', () => { aborted = true; })),
+    });
+    const it = s.events();
+    for (let e; (e = (await it.next()).value); ) if (e.type === 'approval_asked') break;
+    it.next(); // a read left pending
+  })();
+  for (let i = 0; i < 10 && !aborted; i++) { await sleep(20); globalThis.gc(); }
+  check('dropped session cancels the pending approval', aborted);
+} else {
+  console.log('SKIP  dropped session cancels the pending approval  (run node with --expose-gc)');
+}
+
+// 16. abandoned session: never drained, never cancelled. The process must still exit.
 startSession({ turns: [{ tool_calls: Array.from({ length: 500 }, () => call('noop')) }], tools: { noop: () => 0 }, eventCapacity: 1 });
 
 const failed = results.filter((r) => !r).length;

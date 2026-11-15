@@ -59,7 +59,7 @@ drive() {
   mkdir -p "$out"
   doctor >"$out/doctor.txt"
   local which=${1:-all} bad=0
-  case $which in node|all) drive_one node node "$proto/node/demo.mjs" || bad=1 ;; esac
+  case $which in node|all) drive_one node node --expose-gc "$proto/node/demo.mjs" || bad=1 ;; esac
   case $which in py|all) drive_one py python3 "$proto/py/demo.py" || bad=1 ;; esac
   echo "evidence: ${out#$repo/}"
   return $bad

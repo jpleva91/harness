@@ -8,7 +8,7 @@ The builder can cancel a run at any moment. The loop stops, ends the event strea
 - `cancel-approval`: cancel while the approval handler is pending. The handler sees the abort, the tool never runs.
 - `timeout-tool`: a tool that outlives its timeout is aborted, its result is `timed out`, and the run goes on.
 - `abort-immediate`: an abort sent the moment a tool is called still reaches it, so the tool does no work.
-- `drop-session` (Python only): dropping the session cancels the approval handler that is pending.
+- `drop-session`: dropping the session, even with a read still pending, cancels the approval handler that is pending.
 
 ## How to get to it (user POV)
 
@@ -27,7 +27,7 @@ Preconditions:
 - **cancel-approval.** Line `PASS  cancel mid-approval`. The trace above the line ends with `approval_asked` then `run_finished` with `"reason":"cancelled"`.
 - **timeout-tool.** Line `PASS  tool timeout`. The trace above the line shows `tool_result` with `"ok":false,"output":"timed out"`, then the second turn's `text_delta`, then `"reason":"completed"`.
 - **abort-immediate.** Line `PASS  immediate abort`. The trace above the line shows `tool_result` with `"output":"timed out"`. The scenario blocks the host event loop so that the call and its abort are queued together, and checks a host-side flag that the tool did no work.
-- **drop-session.** Python only: line `PASS  dropped session cancels the pending approval`. The proof is a host-side flag set when the handler is cancelled.
+- **drop-session.** Line `PASS  dropped session cancels the pending approval`. The proof is a host-side flag set when the handler is cancelled. A `SKIP` line in Node means it ran without `--expose-gc` and proves nothing.
 - **Every ordering.** These scenarios cancel at one chosen moment each. For all orderings of cancel against approvals and tools, run `.claude/skills/formal-verify-loop/check.sh`.
 
 ## Gotchas
@@ -39,4 +39,4 @@ Preconditions:
 - `timeout-tool` in Node proves the tool was told to stop, not that it stopped: its promise never settles. Node cannot stop a callback that ignores the signal, and neither binding can interrupt a callback that blocks the thread.
 - `abort-immediate` discriminates in Python only: it fails there without the wrapper's early-abort guard. In Node the call was always delivered before its abort on the test machine, so the scenario passes with or without the guard. The Node guard is unproven.
 - `drop-session` leaves a native read pending on purpose, because a pending read keeps the event receiver alive; the scenario fails if the session's drop does not cancel.
-- `drop-session` has no Node scenario: Node frees the session only at garbage collection, which a script cannot time. The core behavior is covered by the replay test `dropped_session_aborts_the_host_call_in_flight`.
+- In Node a session is dropped only when the garbage collector frees it, which the scenario forces. In a real program that can be much later, or never before exit. The scenario also depends on the wrapper not holding the session from any long-lived closure: `node/harness.mjs` says how at the top.

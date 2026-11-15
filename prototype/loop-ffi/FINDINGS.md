@@ -4,7 +4,7 @@ Throwaway prototype. Measured on Linux x64, Rust 1.96, Node 26.13, CPython 3.12,
 
 ## Question 1: do host callbacks work across the FFI boundary?
 
-**Yes, in both Node and CPython, with async callbacks and cancellation.** The same 14 scenarios pass in both bindings, plus a dropped-session scenario in Python (`./run.sh`).
+**Yes, in both Node and CPython, with async callbacks and cancellation.** The same 15 scenarios pass in both bindings (`./run.sh`).
 
 | What | Node (napi-rs 3) | CPython (PyO3 0.30) |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ What the bindings needed, which the real design should keep:
 
 - **An id per host call and an abort callback.** Neither runtime lets Rust cancel a host promise or coroutine directly. The loop gives every callback invocation its own id; the binding keeps a map from id to `AbortController` (Node) or `asyncio.Task` (Python); the loop calls `abort(id)`. About 20 lines per binding.
 - **An abort can overtake the call it aborts.** The call and the abort reach the host event loop separately. In Python the abort arrived before the callback's first step and was lost, so a timed-out tool ran anyway (found in review, reproduced, fixed by remembering early aborts). Node has the same gap on paper and the same guard; it was not seen to happen, so the Node guard is unproven.
-- **A dropped session must count as cancel.** Otherwise a pending approval and the Rust task stay alive with nobody reading. Dropping the session now cancels the run. Python drops at once; Node only at garbage collection, so a Node builder needs an explicit `cancel()` or close.
+- **A dropped session must count as cancel.** Otherwise a pending approval and the Rust task stay alive with nobody reading. Dropping the session now cancels the run. Python drops at once. Node drops only when the garbage collector gets to it, so a Node builder needs an explicit `cancel()` or close; and it took three fixes before the Node session could be collected at all: the event reader had to be a separate native object, the callbacks had to be built in a scope that does not contain the session, and the event generator had to stop holding its receiver. The real TypeScript binding needs a test for this.
 - **Callbacks run on the builder's event loop**, not on a Rust thread. In Python the session must be started inside the running asyncio loop, which it captures.
 - **Weak callback handles in Node.** With strong ones, a session that is never drained keeps the process alive.
 - **Events are pulled.** `next_event()` is an awaitable on the Rust channel, wrapped as an async iterator. That gives backpressure for free: with no consumer the loop stops after filling a small buffer.
@@ -31,7 +31,7 @@ What the bindings needed, which the real design should keep:
 
 The first version raced cancel against other work with an unbiased `select!`. The TLA+ model found, and replay tests confirmed in the real loop, that **a cancelled run could still ask for approval (126 of 2000 runs) or start a tool (702 of 2000)**. Fix: every select looks at cancel first. The rule for the spec: *once the builder has cancelled, the loop starts no new approval prompt and no new tool.* A cancel that lands in the middle of a loop step can still let one call start; it is aborted at once.
 
-Two more bugs came from the Codex review, both described above: the lost early abort in Python and the session dropped during a pending callback.
+More bugs came from the Codex review, all described above: the lost early abort in Python, the session dropped during a pending callback, and the Node session that could never be collected.
 
 Checked by `.claude/skills/formal-verify-loop/check.sh` (model, mutants, replay tests) and `.claude/skills/verify-loop-prototype/verify.sh drive` (both bindings, with evidence).
 
