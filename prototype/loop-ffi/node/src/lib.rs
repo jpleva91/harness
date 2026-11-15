@@ -11,37 +11,39 @@ use proto_core::{Config, Event, Handle, Host};
 use tokio::sync::{mpsc, Mutex};
 
 // Ids cross as f64: exact up to 2^53, where u32 would wrap.
-type CallArgs = FnArgs<(f64, String, String)>;
+type DispatchArgs = FnArgs<(String, f64, String, String)>;
+// One threadsafe function carries tool calls, approval requests and aborts. Each threadsafe
+// function has its own queue, so with one per kind an abort could reach JS before the call
+// it aborts. One queue keeps them in the order the loop sent them.
 // Weak: an abandoned session must not keep the Node process alive.
-type ToolFn = ThreadsafeFunction<CallArgs, Promise<String>, CallArgs, Status, false, true>;
-type ApproveFn = ThreadsafeFunction<CallArgs, Promise<bool>, CallArgs, Status, false, true>;
-type AbortFn = ThreadsafeFunction<f64, (), f64, Status, false, true>;
+type DispatchFn = ThreadsafeFunction<DispatchArgs, Promise<String>, DispatchArgs, Status, false, true>;
 
 struct NodeHost {
-    call_tool: Arc<ToolFn>,
-    approve: Arc<ApproveFn>,
-    abort: AbortFn,
+    dispatch: Arc<DispatchFn>,
+}
+
+impl NodeHost {
+    fn call(&self, kind: &'static str, id: u64, name: String, input: String) -> BoxFuture<'static, std::result::Result<String, String>> {
+        let f = self.dispatch.clone();
+        async move {
+            let promise = f.call_async((kind.to_string(), id as f64, name, input).into()).await.map_err(|e| e.reason.clone())?;
+            promise.await.map_err(|e| e.reason.clone())
+        }
+        .boxed()
+    }
 }
 
 impl Host for NodeHost {
-    fn call_tool(&self, call_id: u64, name: String, input: String) -> BoxFuture<'static, std::result::Result<String, String>> {
-        let f = self.call_tool.clone();
-        async move {
-            let promise = f.call_async((call_id as f64, name, input).into()).await.map_err(|e| e.reason.clone())?;
-            promise.await.map_err(|e| e.reason.clone())
-        }
-        .boxed()
+    fn call_tool(&self, host_call: u64, name: String, input: String) -> BoxFuture<'static, std::result::Result<String, String>> {
+        self.call("tool", host_call, name, input)
     }
-    fn approve(&self, call_id: u64, name: String, input: String) -> BoxFuture<'static, std::result::Result<bool, String>> {
-        let f = self.approve.clone();
-        async move {
-            let promise = f.call_async((call_id as f64, name, input).into()).await.map_err(|e| e.reason.clone())?;
-            promise.await.map_err(|e| e.reason.clone())
-        }
-        .boxed()
+    fn approve(&self, host_call: u64, name: String, input: String) -> BoxFuture<'static, std::result::Result<bool, String>> {
+        let answer = self.call("approve", host_call, name, input);
+        async move { Ok(answer.await? == "true") }.boxed()
     }
-    fn abort(&self, call_id: u64) {
-        self.abort.call(call_id as f64, ThreadsafeFunctionCallMode::NonBlocking);
+    fn abort(&self, host_call: u64) {
+        let args = ("abort".to_string(), host_call as f64, String::new(), String::new()).into();
+        self.dispatch.call(args, ThreadsafeFunctionCallMode::NonBlocking);
     }
 }
 
@@ -77,9 +79,9 @@ impl Drop for Session {
 #[napi]
 impl Session {
     #[napi(factory)]
-    pub fn start(config_json: String, call_tool: ToolFn, approve: ApproveFn, abort: AbortFn) -> Result<Session> {
+    pub fn start(config_json: String, dispatch: DispatchFn) -> Result<Session> {
         let config: Config = serde_json::from_str(&config_json).map_err(|e| Error::from_reason(e.to_string()))?;
-        let host = Arc::new(NodeHost { call_tool: Arc::new(call_tool), approve: Arc::new(approve), abort });
+        let host = Arc::new(NodeHost { dispatch: Arc::new(dispatch) });
         let (handle, rx) = within_runtime_if_available(|| proto_core::start(config, host));
         Ok(Session { handle, rx: Arc::new(Mutex::new(rx)) })
     }
