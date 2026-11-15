@@ -9,3 +9,4 @@
 - **Durable approvals**: approvals and sessions that survive a crash or resume. First claim on v1 scope after the wedge.
 - **Core**: the Rust implementation of the harness. It holds all behavior: loop, permissions, sandbox, sessions and context. Internal in v1.
 - **Binding**: the TypeScript or Python package a builder imports. It is thin: typed wrappers over the core plus the builder's own callbacks.
+- **Session**: the unit a builder holds: one agent's run, with its own config, credentials, workspace and sandbox passed in. Many sessions run in one process and share nothing.
