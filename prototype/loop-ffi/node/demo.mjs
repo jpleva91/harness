@@ -95,7 +95,7 @@ const call = (name, input = {}, extra = {}) => ({ name, input, ...extra });
   );
   await sleep(5);
   const ms = performance.now() - cancelledAt;
-  check('cancel mid-tool', aborted && last(evs).reason === 'cancelled' && !evs.some((e) => e.type === 'text_delta'), `${ms.toFixed(1)}ms after cancel`);
+  check('cancel mid-tool', aborted && ms < 100 && last(evs).reason === 'cancelled' && !evs.some((e) => e.type === 'text_delta'), `${ms.toFixed(1)}ms after cancel`);
 }
 
 // 7. cancel while approval is pending
@@ -150,8 +150,11 @@ const call = (name, input = {}, extra = {}) => ({ name, input, ...extra });
       deltaDelayMs: 1,
     }))));
   clearInterval(timer);
-  const ok = runs.every((evs, k) => evs.filter((e) => e.type === 'tool_result').every((r) => r.output === `{"k":${k}}`) && last(evs).reason === 'completed');
-  check('200 concurrent sessions', ok, `max event-loop lag ${maxLag.toFixed(1)}ms`);
+  const ok = runs.every((evs, k) => {
+    const rs = evs.filter((e) => e.type === 'tool_result');
+    return rs.length === 3 && rs.every((r) => r.ok && r.output === `{"k":${k}}`) && last(evs).reason === 'completed';
+  });
+  check('200 concurrent sessions', ok && maxLag < 250, `max event-loop lag ${maxLag.toFixed(1)}ms`);
 }
 
 // 12. backpressure: a slow consumer slows the loop instead of buffering without bound
@@ -177,7 +180,21 @@ const call = (name, input = {}, extra = {}) => ({ name, input, ...extra });
   check('callback overhead', per < 1, `${(per * 1000).toFixed(0)}us per tool call (approval + tool + 4 events)`);
 }
 
-// 14. abandoned session: never drained, never cancelled. The process must still exit.
+// 14. a timeout of zero aborts the tool at the earliest moment: it must do no work
+{
+  let ran = false;
+  const evs = await drain(startSession({
+    turns: [{ tool_calls: [call('late', {}, { timeout_ms: 0 })] }],
+    tools: { late: async (_i, signal) => { await sleep(20); if (!signal.aborted) ran = true; return {}; } },
+    // Block the JS thread just after the approval is answered, so the tool call and its
+    // abort (timeout 0) are both queued before either is delivered.
+    approve: () => { setImmediate(() => { const t = performance.now(); while (performance.now() - t < 50); }); return true; },
+  }));
+  await sleep(40);
+  check('immediate abort', !ran && evs.find((e) => e.type === 'tool_result').output === 'timed out');
+}
+
+// 15. abandoned session: never drained, never cancelled. The process must still exit.
 startSession({ turns: [{ tool_calls: Array.from({ length: 500 }, () => call('noop')) }], tools: { noop: () => 0 }, eventCapacity: 1 });
 
 const failed = results.filter((r) => !r).length;

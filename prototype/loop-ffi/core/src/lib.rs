@@ -73,13 +73,14 @@ pub enum FinishReason {
 }
 
 /// The builder's callbacks. Each binding implements this over its FFI.
-/// `call_id` lets the binding map a later `abort` onto the in-flight host call.
+/// `host_call` is unique per callback invocation, so the binding can map a later `abort`
+/// onto the one in flight. It is not the tool call's `call_id`.
 pub trait Host: Send + Sync + 'static {
-    fn call_tool(&self, call_id: u64, name: String, input: String) -> BoxFuture<'static, Result<String, String>>;
+    fn call_tool(&self, host_call: u64, name: String, input: String) -> BoxFuture<'static, Result<String, String>>;
     /// Returns Ok(true) to allow. An Err is treated as a denial (fail closed).
-    fn approve(&self, call_id: u64, name: String, input: String) -> BoxFuture<'static, Result<bool, String>>;
-    /// Tell the host that the in-flight callback for `call_id` should stop.
-    fn abort(&self, call_id: u64);
+    fn approve(&self, host_call: u64, name: String, input: String) -> BoxFuture<'static, Result<bool, String>>;
+    /// Tell the host that the callback invocation `host_call` should stop.
+    fn abort(&self, host_call: u64);
 }
 
 #[derive(Clone)]
@@ -98,6 +99,7 @@ impl Handle {
 }
 
 static NEXT_CALL_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_HOST_CALL: AtomicU64 = AtomicU64::new(1);
 
 /// Outcome of awaiting a host callback against cancellation and a timeout.
 enum Hosted<T> {
@@ -108,9 +110,10 @@ enum Hosted<T> {
 
 async fn hosted<T>(
     host: &Arc<dyn Host>,
-    call_id: u64,
+    host_call: u64,
     fut: BoxFuture<'static, Result<T, String>>,
     cancel: &CancellationToken,
+    tx: &mpsc::Sender<Event>,
     timeout: Option<Duration>,
 ) -> Hosted<T> {
     let sleep = async {
@@ -123,9 +126,11 @@ async fn hosted<T>(
     // and go on to start the next host call (Loop.tla, NoHostCallStartsAfterCancel).
     tokio::select! {
         biased;
-        _ = cancel.cancelled() => { host.abort(call_id); Hosted::Cancelled }
+        _ = cancel.cancelled() => { host.abort(host_call); Hosted::Cancelled }
+        // The builder dropped the session: nobody is left to read the result.
+        _ = tx.closed() => { host.abort(host_call); Hosted::Cancelled }
         r = fut => Hosted::Done(r),
-        _ = sleep => { host.abort(call_id); Hosted::TimedOut }
+        _ = sleep => { host.abort(host_call); Hosted::TimedOut }
     }
 }
 
@@ -179,8 +184,9 @@ async fn run(config: Config, host: Arc<dyn Host>, h: &Handle, tx: &mpsc::Sender<
             let input = call.input.to_string();
             emit(Event::ToolCall { turn: n, call_id, name: call.name.clone(), input: call.input.clone() }).await?;
             emit(Event::ApprovalAsked { call_id, name: call.name.clone(), input: call.input.clone() }).await?;
-            let fut = host.approve(call_id, call.name.clone(), input.clone());
-            let (allowed, reason) = match hosted(&host, call_id, fut, cancel, None).await {
+            let host_call = NEXT_HOST_CALL.fetch_add(1, Ordering::Relaxed);
+            let fut = host.approve(host_call, call.name.clone(), input.clone());
+            let (allowed, reason) = match hosted(&host, host_call, fut, cancel, tx, None).await {
                 Hosted::Done(Ok(a)) => (a, None),
                 Hosted::Done(Err(e)) => (false, Some(format!("approval handler failed: {e}"))),
                 Hosted::Cancelled => return None,
@@ -191,9 +197,10 @@ async fn run(config: Config, host: Arc<dyn Host>, h: &Handle, tx: &mpsc::Sender<
                 emit(Event::ToolResult { call_id, ok: false, output: "denied".into() }).await?;
                 continue;
             }
-            let fut = host.call_tool(call_id, call.name.clone(), input);
+            let host_call = NEXT_HOST_CALL.fetch_add(1, Ordering::Relaxed);
+            let fut = host.call_tool(host_call, call.name.clone(), input);
             let timeout = call.timeout_ms.map(Duration::from_millis);
-            let (ok, output) = match hosted(&host, call_id, fut, cancel, timeout).await {
+            let (ok, output) = match hosted(&host, host_call, fut, cancel, tx, timeout).await {
                 Hosted::Done(Ok(out)) => (true, out),
                 Hosted::Done(Err(e)) => (false, e),
                 Hosted::Cancelled => return None,

@@ -107,7 +107,7 @@ async def main():
     evs = await drain(s, cancel_after_approval)
     ms = (time.perf_counter() - seen["t"]) * 1000
     await asyncio.sleep(0.005)
-    check("cancel mid-tool", seen.get("cancelled") and evs[-1]["reason"] == "cancelled" and not first(evs, "text_delta"),
+    check("cancel mid-tool", seen.get("cancelled") and ms < 100 and evs[-1]["reason"] == "cancelled" and not first(evs, "text_delta"),
           f"{ms:.1f}ms after cancel")
 
     # 7. cancel while approval is pending
@@ -178,9 +178,12 @@ async def main():
     runs = await asyncio.gather(*(session(k) for k in range(200)))
     lag["run"] = False
     await tick
-    ok = all(all(e["output"] == f'{{"k":{k}}}' for e in evs if e["type"] == "tool_result") and evs[-1]["reason"] == "completed"
-             for k, evs in enumerate(runs))
-    check("200 concurrent sessions", ok, f"max event-loop lag {lag['max']:.1f}ms")
+    def session_ok(k, evs):
+        rs = [e for e in evs if e["type"] == "tool_result"]
+        return len(rs) == 3 and all(r["ok"] and r["output"] == f'{{"k":{k}}}' for r in rs) and evs[-1]["reason"] == "completed"
+
+    ok = all(session_ok(k, evs) for k, evs in enumerate(runs))
+    check("200 concurrent sessions", ok and lag["max"] < 250, f"max event-loop lag {lag['max']:.1f}ms")
 
     # 12. backpressure: a slow consumer slows the loop instead of buffering without bound
     produced = []
@@ -199,7 +202,37 @@ async def main():
     per = (time.perf_counter() - t0) / n
     check("callback overhead", per < 0.001, f"{per * 1e6:.0f}us per tool call (approval + tool + 4 events)")
 
-    # 14. abandoned session: never drained, never cancelled. The process must still exit.
+    # 14. a timeout of zero aborts the tool at the earliest moment: it must do no work
+    ran = []
+
+    async def late(_i):
+        ran.append(1)
+        return {}
+
+    # Block the event loop just after the approval is answered, so the tool call and its
+    # abort (timeout 0) are both queued before the tool's task takes its first step.
+    async def allow_then_block(_req):
+        loop = asyncio.get_running_loop()
+        loop.call_soon(lambda: loop.call_soon(time.sleep, 0.05))
+        return True
+
+    evs = await drain(start_session([{"tool_calls": [call("late", timeout_ms=0)]}], tools={"late": late},
+                                    approve=allow_then_block))
+    await asyncio.sleep(0.01)
+    check("immediate abort", not ran and first(evs, "tool_result")["output"] == "timed out")
+
+    # 15. dropped session: the pending approval handler is cancelled
+    seen = {}
+    s = start_session([{"tool_calls": [call("echo")]}], tools={"echo": lambda i: i}, approve=never)
+    async for e in s.events():
+        if e["type"] == "approval_asked":
+            break
+    await asyncio.sleep(0.01)
+    del s, e
+    await asyncio.sleep(0.05)
+    check("dropped session cancels the pending approval", seen.get("cancelled"))
+
+    # 16. abandoned session: never drained, never cancelled. The process must still exit.
     start_session([{"tool_calls": [call("noop")] * 500}], tools={"noop": lambda i: 0}, event_capacity=1)
 
 

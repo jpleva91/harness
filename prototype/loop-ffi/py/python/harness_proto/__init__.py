@@ -29,9 +29,13 @@ def start_session(turns, tools=None, approve=lambda req: True, delta_delay_ms=0,
     """Call from inside a running asyncio loop. Callbacks run on that loop."""
     tools = tools or {}
     inflight = {}  # call id -> asyncio.Task
+    early_aborts = set()  # call ids aborted before their task took its first step
 
     def hosted(fn):
         async def run(call_id, name, input_json):
+            if call_id in early_aborts:
+                early_aborts.discard(call_id)
+                raise asyncio.CancelledError
             inflight[call_id] = asyncio.current_task()
             try:
                 return await fn(name, json.loads(input_json))
@@ -49,6 +53,8 @@ def start_session(turns, tools=None, approve=lambda req: True, delta_delay_ms=0,
         task = inflight.get(call_id)
         if task:
             task.cancel()
+        else:
+            early_aborts.add(call_id)
 
     config = {"turns": turns, "delta_delay_ms": delta_delay_ms, "event_capacity": event_capacity}
     return Session(_native.Session.start(json.dumps(config), hosted(call_tool), hosted(ask), abort))

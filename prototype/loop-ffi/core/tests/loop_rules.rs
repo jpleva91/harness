@@ -124,3 +124,27 @@ async fn cancel_aborts_the_host_call_in_flight() {
     assert_eq!(probe.aborts.load(Ordering::SeqCst), 1);
     assert!(matches!(events.last(), Some(Event::RunFinished { .. })));
 }
+
+/// NoOrphanHostCall. Approval pending, the builder drops the session, the loop must abort the call.
+#[tokio::test]
+async fn dropped_session_aborts_the_host_call_in_flight() {
+    let (_answer, held) = oneshot::channel();
+    let probe = Arc::new(Probe::default());
+    *probe.answer.lock().unwrap() = Some(held);
+    let (handle, mut rx) = start(config(), probe.clone());
+    while let Some(ev) = rx.recv().await {
+        if matches!(ev, Event::ApprovalAsked { .. }) {
+            break;
+        }
+    }
+    while probe.approvals_started.load(Ordering::SeqCst) == 0 {
+        tokio::task::yield_now().await;
+    }
+    drop(rx);
+    drop(handle);
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(probe.aborts.load(Ordering::SeqCst), 1);
+    assert_eq!(probe.tools_started.load(Ordering::SeqCst), 0);
+}
