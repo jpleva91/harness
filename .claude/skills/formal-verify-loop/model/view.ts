@@ -1,7 +1,8 @@
 export const title = "One run of the loop: approvals, tools and cancel";
 
 const where: Record<string, string> = {
-  emitAsked: "Reporting a tool call",
+  emitCall: "Reporting a tool call",
+  emitAsked: "Reporting the approval request",
   awaitApproval: "Waiting for approval",
   emitAnswered: "Reporting the approval answer",
   emitDenied: "Reporting a denied tool",
@@ -22,6 +23,7 @@ const labels: Record<string, string | null> = {
   BuilderReadsEvent: null,
   HostAnswers: null,
   ToolSettles: null,
+  ReportCall: "the tool call is reported",
   AskApproval: "the loop asks for approval",
   TakeAnswer: "the approval handler answers",
   AbandonApproval: "the loop drops the approval and aborts it",

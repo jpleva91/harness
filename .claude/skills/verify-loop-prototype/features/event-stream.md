@@ -26,12 +26,13 @@ Preconditions:
 - **ev-order.** Line `PASS  async tool + async approval`; the order is listed in [host callbacks](./host-callbacks.md).
 - **ev-steer.** Line `PASS  steer`. The trace above the line shows `turn_finished`, `{"type":"steered","text":"use tabs"}`, `turn_started`.
 - **ev-retry.** Line `PASS  model retry events`. The trace above the line shows two `model_retry` events with attempts 1 and 2.
-- **ev-many.** Line `PASS  200 concurrent sessions  max event-loop lag <n>ms`. Report the lag with the build mode.
+- **ev-many.** Line `PASS  200 concurrent sessions  max event-loop lag <n>ms`. Each session must get exactly three successful tool results carrying its own number. The scenario fails above 250 ms lag. Report the lag with the build mode.
 - **ev-backpressure.** Line `PASS  backpressure  0 tool calls ran before the consumer started`.
-- **ev-abandon.** The last line `13/13 passed (...); exiting with an abandoned session` and `<binding>.exit` containing `0`. An exit of `124` means the abandoned session kept the process alive.
+- **ev-abandon.** The last line `<n>/<n> passed (...); exiting with an abandoned session` and `<binding>.exit` containing `0`. An exit of `124` means the abandoned session kept the process alive.
 
 ## Gotchas
 
+- `steered` only shows that the text reached the loop. The scripted model ignores it, so nothing here proves that steering changes what a model does.
 - Steering lands at turn boundaries only. A steer sent after the last turn started is never delivered, and nothing reports that.
 - `ev-many` and `cb-cost` produce most of the trace file, about 12,000 event lines per binding.
 - `ev-abandon` is proven only by the process exit, so it cannot be checked from a script that goes on to do other work.

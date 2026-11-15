@@ -5,7 +5,7 @@ description: "Drive the harness loop prototype (prototype/loop-ffi) the way an a
 
 # Verify the loop prototype
 
-The prototype is a library, not an app. Its user is an agent builder whose own script imports a binding, starts sessions, hands in a tool and an approval handler, and reads events. So the user path is a host script: `prototype/loop-ffi/node/demo.mjs` (through `node/harness.mjs`) and `prototype/loop-ffi/py/demo.py` (through `py/python/harness_proto`). Both run the same 13 scenarios against a scripted model, then exit with one session abandoned on purpose.
+The prototype is a library, not an app. Its user is an agent builder whose own script imports a binding, starts sessions, hands in a tool and an approval handler, and reads events. So the user path is a host script: `prototype/loop-ffi/node/demo.mjs` (through `node/harness.mjs`) and `prototype/loop-ffi/py/demo.py` (through `py/python/harness_proto`). Both run the same scenarios against a scripted model (14 in Node, 15 in Python, which adds a dropped-session scenario), then exit with one session abandoned on purpose.
 
 There is no model provider, network, port, database or auth. Two runs can go side by side; only `cargo build` takes a lock.
 
@@ -38,7 +38,7 @@ Read-only. Prints `OK`, `MISSING` or `STALE` per tool and per binding, and the g
 .claude/skills/verify-loop-prototype/verify.sh drive node   # or: py
 ```
 
-Each binding prints one `PASS` or `FAIL` line per scenario and a last line `13/13 passed (...)`. Exit code 0 means every scenario passed and the process exited by itself. Exit 124 means the process hung and was killed after 120 seconds, which is itself a finding: the last scenario abandons a session, and the process must still exit.
+Each binding prints one `PASS` or `FAIL` line per scenario and a last line `14/14 passed (...)` for Node or `15/15 passed (...)` for Python. Exit code 0 means every scenario passed and the process exited by itself. Exit 124 means the process hung and was killed after 120 seconds, which is itself a finding: the last scenario abandons a session, and the process must still exit.
 
 To drive something the scenarios do not cover, write a host script next to the demo that imports `startSession` (Node) or `start_session` (Python) and run it with `node` or `python3`. Use the wrapper, not the native module: the wrapper is the surface a builder would get. Which scenario proves which feature is in [`features/`](features/README.md).
 
@@ -48,7 +48,7 @@ Each drive writes `prototype/loop-ffi/evidence/<UTC time>-<pid>/` (ignored by gi
 
 - `doctor.txt`: tools, build freshness and revision.
 - `<binding>.transcript.txt`, `<binding>.stderr.txt`, `<binding>.exit`: the scenario lines, errors and exit code.
-- `<binding>.trace.txt`: the same run with every event printed as JSON above the scenario line it belongs to.
+- `<binding>.trace.txt`, `<binding>.trace.stderr.txt`: a second run with every event printed as JSON above the scenario line it belongs to. `drive` fails with `TRACE MISMATCH` if this run's exit code or verdicts differ from the first run's.
 
 Proof standards for this prototype:
 

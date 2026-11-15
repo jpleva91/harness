@@ -39,10 +39,17 @@ drive_one() {
   timeout 120 "$@" >"$out/$name.transcript.txt" 2>"$out/$name.stderr.txt"
   local code=$?
   echo "$code" >"$out/$name.exit"
-  TRACE=1 timeout 120 "$@" >"$out/$name.trace.txt" 2>/dev/null
+  # The trace is a second run. It only counts as evidence if it agrees with the first.
+  TRACE=1 timeout 120 "$@" >"$out/$name.trace.txt" 2>"$out/$name.trace.stderr.txt"
+  local trace_code=$?
+  verdicts() { grep -E '^(PASS|FAIL)  ' "$1" | sed -E 's/^((PASS|FAIL)  [^0-9{]*).*/\1/; s/ +$//'; }
   echo "--- $name: exit $code (124 means it hung and was killed)"
   cat "$out/$name.transcript.txt"
   [ -s "$out/$name.stderr.txt" ] && { echo "stderr:"; cat "$out/$name.stderr.txt"; }
+  if [ $trace_code -ne $code ] || [ "$(verdicts "$out/$name.transcript.txt")" != "$(verdicts "$out/$name.trace.txt")" ]; then
+    echo "TRACE MISMATCH: the trace run (exit $trace_code) disagrees with the first run; the trace is not evidence for it"
+    return 1
+  fi
   return $code
 }
 

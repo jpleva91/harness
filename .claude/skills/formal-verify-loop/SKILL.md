@@ -32,28 +32,31 @@ It takes about ten seconds and needs Java 11 or later (`JAVA=/path/to/java` if `
 | Model action | Code (`prototype/loop-ffi/core/src/lib.rs`) |
 | --- | --- |
 | `Send`, `StopAtEmit` | the `emit` closure in `run`: a select over cancel and `tx.send` |
-| `AskApproval` | `emit(ToolCall)`, `emit(ApprovalAsked)`, then `host.approve(..)` in the same poll |
+| `ReportCall` | `emit(ToolCall)` |
+| `AskApproval` | `emit(ApprovalAsked)`, then `host.approve(..)` with no await between |
 | `TakeAnswer`, `AbandonApproval` | `hosted(..)` around the approval future |
 | `AnswerAllowed`, `AnswerDenied`, `ReportDenied` | `emit(ApprovalAnswered)`, then `host.call_tool(..)` or the denied `ToolResult` |
 | `TakeResult`, `ToolTimesOut`, `AbandonTool` | `hosted(..)` around the tool future, with its timeout |
 | `ReportResult`, `SendFinished` | `emit(ToolResult)`; `tx.send(RunFinished)` in `start` |
 | `CancelFirst = TRUE` | `biased;` with the cancel branch first in every `select!`. The select in `emit` is the one that guards `NoHostCallStartsAfterCancel`, because an emit comes before every host call. Unbiasing only `hosted` does not break the rule. A host call started without an emit before it would. |
-| `BuilderCancels`, `BuilderReadsEvent`, `HostAnswers`, `ToolSettles` | `Handle::cancel`, the receiver, and the `Host` futures settling |
+| `BuilderCancels` | `Handle::cancel`. It also stands for the builder dropping the session: `tx.closed()` in `hosted` and a failed `tx.send` in `emit` take the same exits. |
+| `BuilderReadsEvent`, `HostAnswers`, `ToolSettles` | the receiver, and the `Host` futures settling |
 
-One model step is one poll of the run task: the code between two awaits.
+One model step is the code between two awaits. A real poll can take several steps in a row when their awaits are ready. The model therefore allows more orderings than the code, never fewer, which is safe for these rules: a pass still covers the code, and a failure must be replayed before it counts as a bug.
 
-Replay tests: `prototype/loop-ffi/core/tests/loop_rules.rs`, one test per rule, named in each doc comment.
+Replay tests: `prototype/loop-ffi/core/tests/loop_rules.rs`, at least one test per rule, named in each doc comment.
 
-**Sync commit: `d56f096`.** The model described the code at that commit. If `git log d56f096.. -- prototype/loop-ffi/core/src/lib.rs` shows changes, read them against the table before trusting a pass. Move the sync commit forward only after you have confirmed the table still describes the code.
+**Sync commit: `e9ee390`.** The model described the code at that commit. If `git log e9ee390.. -- prototype/loop-ffi/core/src/lib.rs` shows changes, read them against the table before trusting a pass. Move the sync commit forward only after you have confirmed the table still describes the code.
 
 ## Bounds and what is left out
 
 - One run, two tool calls, one after another, event channel capacity two. Parallel tool calls are not modeled; the loop has none.
 - The model checks safety only. It does not show that a run ends. A builder who stops reading events without cancelling parks the loop for as long as the session object lives.
 - Cancel is another thread. A cancel that lands in the middle of a poll is seen by the next poll, so one host call can still start and is then aborted at once. The rule is about polls that begin after cancel.
-- The FFI layers (`node/`, `py/`) are not modeled. Whether an abort reaches the host callback is covered by the demos, not here.
+- The FFI layers (`node/`, `py/`) are not modeled. In the model a host call starts the moment the loop asks; in a binding the callback starts later, on the builder's event loop, and an abort can overtake it. Whether an abort reaches the host callback is covered by the demos (`immediate abort`), not here.
 - Text deltas, retries, steering and turns are left out: they start no host call.
 - The replay tests for `NoHostCallStartsAfterCancel` are statistical: 2000 runs each. The broken loop failed 126 and 702 of 2000.
+- `TypeOK` is a sanity check on the model and has no mutant.
 
 ## When a check fails
 

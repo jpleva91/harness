@@ -1,6 +1,7 @@
 ---- MODULE Loop ----
 \* Model of one run of the loop in prototype/loop-ffi/core/src/lib.rs.
-\* Each loop action is one poll of the run task: the code between two awaits.
+\* Each loop action is the code between two awaits. One poll of the run task may take
+\* several actions in a row when their awaits are ready; that only adds orderings.
 EXTENDS Naturals
 
 CONSTANTS
@@ -11,7 +12,7 @@ CONSTANTS
 VARIABLES
   pc,         \* where run() is waiting
   call,       \* index of the tool call being worked
-  cancelled,  \* Handle.cancel() was called
+  cancelled,  \* Handle.cancel() was called, or the builder dropped the session
   approval,   \* the host's approve callback for this call
   allowed,    \* the decision run() took from it
   tool,       \* the host's call_tool callback for this call
@@ -20,10 +21,10 @@ VARIABLES
 
 vars == <<pc, call, cancelled, approval, allowed, tool, queued, lateStart>>
 
-Emits == {"emitAsked", "emitAnswered", "emitDenied", "emitResult"}
+Emits == {"emitCall", "emitAsked", "emitAnswered", "emitDenied", "emitResult"}
 
 Init ==
-  /\ pc = "emitAsked" /\ call = 1 /\ cancelled = FALSE
+  /\ pc = "emitCall" /\ call = 1 /\ cancelled = FALSE
   /\ approval = "none" /\ allowed = FALSE /\ tool = "none"
   /\ queued = 0 /\ lateStart = FALSE
 
@@ -35,7 +36,7 @@ Send == MayProceed /\ queued < Capacity /\ queued' = queued + 1
 
 NextCall ==
   IF call < Calls
-    THEN /\ call' = call + 1 /\ pc' = "emitAsked"
+    THEN /\ call' = call + 1 /\ pc' = "emitCall"
          /\ approval' = "none" /\ tool' = "none" /\ allowed' = FALSE
     ELSE /\ pc' = "finish" /\ UNCHANGED <<call, approval, tool, allowed>>
 
@@ -55,7 +56,11 @@ ToolSettles == tool = "running" /\ tool' \in {"ok", "err"}
 
 \* ---- run() ----
 
-\* emit(ToolCall), emit(ApprovalAsked), then host.approve() in the same poll.
+\* emit(ToolCall).
+ReportCall == pc = "emitCall" /\ Send /\ pc' = "emitAsked"
+  /\ UNCHANGED <<call, cancelled, approval, allowed, tool, lateStart>>
+
+\* emit(ApprovalAsked), then host.approve() with no await between.
 AskApproval == pc = "emitAsked" /\ Send
   /\ approval' = "pending" /\ pc' = "awaitApproval"
   /\ lateStart' = (lateStart \/ cancelled)
@@ -73,7 +78,7 @@ AbandonApproval == pc = "awaitApproval" /\ cancelled
   /\ pc' = "finish"
   /\ UNCHANGED <<call, cancelled, allowed, tool, queued, lateStart>>
 
-\* emit(ApprovalAnswered), then host.call_tool() in the same poll when allowed.
+\* emit(ApprovalAnswered), then host.call_tool() with no await between, when allowed.
 AnswerAllowed == pc = "emitAnswered" /\ allowed /\ Send
   /\ tool' = "running" /\ pc' = "awaitTool"
   /\ lateStart' = (lateStart \/ cancelled)
@@ -116,7 +121,7 @@ Done == pc = "done" /\ queued = 0 /\ UNCHANGED vars
 
 Next ==
   \/ BuilderCancels \/ BuilderReadsEvent \/ HostAnswers \/ ToolSettles
-  \/ AskApproval \/ TakeAnswer \/ AbandonApproval
+  \/ ReportCall \/ AskApproval \/ TakeAnswer \/ AbandonApproval
   \/ AnswerAllowed \/ AnswerDenied \/ ReportDenied
   \/ TakeResult \/ ToolTimesOut \/ AbandonTool \/ ReportResult
   \/ StopAtEmit \/ SendFinished \/ Done

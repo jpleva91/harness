@@ -7,6 +7,8 @@ The builder can cancel a run at any moment. The loop stops, ends the event strea
 - `cancel-tool`: cancel while a tool runs. The tool sees the abort, no later event appears, the run ends as cancelled.
 - `cancel-approval`: cancel while the approval handler is pending. The handler sees the abort, the tool never runs.
 - `timeout-tool`: a tool that outlives its timeout is aborted, its result is `timed out`, and the run goes on.
+- `abort-immediate`: an abort sent the moment a tool is called still reaches it, so the tool does no work.
+- `drop-session` (Python only): dropping the session cancels the approval handler that is pending.
 
 ## How to get to it (user POV)
 
@@ -24,6 +26,8 @@ Preconditions:
 - **cancel-tool.** Line `PASS  cancel mid-tool  <n>ms after cancel`. In the trace the events above it end with `approval_answered` then `run_finished` with `"reason":"cancelled"`: no `tool_result` and no `text_delta` from the second turn. The scenario checks a host-side flag that the tool saw the abort.
 - **cancel-approval.** Line `PASS  cancel mid-approval`. The trace above the line ends with `approval_asked` then `run_finished` with `"reason":"cancelled"`.
 - **timeout-tool.** Line `PASS  tool timeout`. The trace above the line shows `tool_result` with `"ok":false,"output":"timed out"`, then the second turn's `text_delta`, then `"reason":"completed"`.
+- **abort-immediate.** Line `PASS  immediate abort`. The trace above the line shows `tool_result` with `"output":"timed out"`. The scenario blocks the host event loop so that the call and its abort are queued together, and checks a host-side flag that the tool did no work.
+- **drop-session.** Python only: line `PASS  dropped session cancels the pending approval`. The proof is a host-side flag set when the handler is cancelled.
 - **Every ordering.** These scenarios cancel at one chosen moment each. For all orderings of cancel against approvals and tools, run `.claude/skills/formal-verify-loop/check.sh`.
 
 ## Gotchas
@@ -31,4 +35,6 @@ Preconditions:
 - The loop runs ahead of the event consumer. A cancel sent on seeing an event can arrive after the loop has moved on, so the scenarios hold the callback open before they cancel.
 - A host callback that ignores the abort keeps running in the builder's process. The loop does not wait for it.
 - A cancel that lands in the middle of a loop step is seen by the next step, so one callback can start and be aborted at once.
-- `ms after cancel` includes the scenario's own 5 ms settle sleep in Node.
+- `ms after cancel` includes the scenario's own 5 ms settle sleep in Node. The scenario fails above 100 ms.
+- `timeout-tool` in Node proves the tool was told to stop, not that it stopped: its promise never settles. Node cannot stop a callback that ignores the signal, and neither binding can interrupt a callback that blocks the thread.
+- `drop-session` has no Node scenario: Node frees the session only at garbage collection, which a script cannot time. The core behavior is covered by the replay test `dropped_session_aborts_the_host_call_in_flight`.
