@@ -15,3 +15,9 @@
 - **Event stream**: the one ordered stream of events a session gives its builder. The builder pulls it; when the builder stops reading, the loop pauses and loses nothing.
 - **Approval**: a decision the loop needs from the builder before a tool call may start. The loop emits an approval request as an event with an id and waits; the builder answers by id. A denied, expired or cancelled approval does not start the tool.
 - **Steer**: text the builder sends into a run in progress. It lands between turns.
+- **Permission rule**: plain data the builder gives a session: a tool name, an optional matcher on that tool's arguments, and an outcome. The core evaluates rules. File tools match path globs; the shell tool matches only as a whole. The builder may add or remove rules mid-session; a change applies to later tool calls only.
+- **Outcome**: what the rules say about one tool call: allow, ask or deny. Deny beats ask beats allow, whatever the order of the rules. No matching rule is a deny. Ask raises an approval. A deny goes back to the model as a tool result.
+- **Sandbox**: the operating-system confinement a session's built-in shell and file tools run under. It is a fixed ceiling set in the session's config: no rule and no approval widens it. If it cannot be set up, the session is not created.
+- **Reach**: what the sandbox lets a tool touch. By default: read and write in the workspace and a private temp directory, read-only on the system paths the builder lists, nothing else, and no network.
+- **Protected path**: a path inside the workspace that the sandbox keeps read-only. By default `.git` and the harness config, so the agent cannot commit until the builder changes the list.
+- **Builder tool**: a tool the builder defines. It runs in the builder's process, outside the sandbox, and is governed by permission rules only.
