@@ -18,7 +18,8 @@ function makeHost(tools, approve) {
     }
   };
   // One entry point for calls and aborts: the native side sends them down one queue, so an
-  // abort always arrives after the call it aborts, and an abort for a finished call finds nothing.
+  // abort never arrives before the call it aborts. An abort for a call that finished, or that
+  // was cancelled before it was sent, finds nothing.
   return (kind, id, name, inputJson) => {
     if (kind === 'abort') {
       inflight.get(id)?.abort();
