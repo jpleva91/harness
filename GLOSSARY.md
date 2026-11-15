@@ -9,4 +9,9 @@
 - **Durable approvals**: approvals and sessions that survive a crash or resume. First claim on v1 scope after the wedge.
 - **Core**: the Rust implementation of the harness. It holds all behavior: loop, permissions, sandbox, sessions and context. Internal in v1.
 - **Binding**: the TypeScript or Python package a builder imports. It is thin: typed wrappers over the core plus the builder's own callbacks.
-- **Session**: the unit a builder holds: one agent's run, with its own config, credentials, workspace and sandbox passed in. Many sessions run in one process and share nothing.
+- **Session**: the unit a builder holds: one agent, with its own config, credentials, workspace and sandbox passed in. A session holds runs, one at a time. Many sessions run in one process and share nothing.
+- **Run**: one prompt worked to its end inside a session. A run ends completed, cancelled or failed; it fails only when a model call still fails after retries.
+- **Turn**: one model call plus the tool calls it asked for. A run is a sequence of turns.
+- **Event stream**: the one ordered stream of events a session gives its builder. The builder pulls it; when the builder stops reading, the loop pauses and loses nothing.
+- **Approval**: a decision the loop needs from the builder before a tool call may start. The loop emits an approval request as an event with an id and waits; the builder answers by id. A denied, expired or cancelled approval does not start the tool.
+- **Steer**: text the builder sends into a run in progress. It lands between turns.
