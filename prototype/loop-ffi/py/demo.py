@@ -228,9 +228,11 @@ async def main():
         if e["type"] == "approval_asked":
             break
     await asyncio.sleep(0.01)
+    pending_read = s._native.next_event()  # a read left pending keeps the event receiver alive
     del s, e
     await asyncio.sleep(0.05)
     check("dropped session cancels the pending approval", seen.get("cancelled"))
+    del pending_read
 
     # 16. abandoned session: never drained, never cancelled. The process must still exit.
     start_session([{"tool_calls": [call("noop")] * 500}], tools={"noop": lambda i: 0}, event_capacity=1)

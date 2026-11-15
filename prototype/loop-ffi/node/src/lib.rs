@@ -50,6 +50,14 @@ pub struct Session {
     rx: Arc<Mutex<mpsc::Receiver<Event>>>,
 }
 
+// Dropping the session is a cancel. The event receiver alone does not show it: a pending
+// next_event() holds its own reference to the receiver.
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.handle.cancel();
+    }
+}
+
 #[napi]
 impl Session {
     #[napi(factory)]

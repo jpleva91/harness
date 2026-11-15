@@ -6,9 +6,13 @@ export function startSession({ turns, tools = {}, approve = () => true, deltaDel
   const inflight = new Map(); // call id -> AbortController
   // Calls and aborts travel on separate threadsafe functions, and nothing promises their order.
   // Not seen in practice; the Python binding does hit the same gap.
-  const earlyAborts = new Set();
+  // A session makes one host call at a time and ids only grow, so an abort for an id not yet
+  // seen is early, and an abort for an older id is late and can be ignored.
+  let lastStarted = 0;
+  let earlyAbort = 0;
   const hosted = (fn) => async (callId, name, inputJson) => {
-    if (earlyAborts.delete(callId)) throw new Error('aborted before start');
+    lastStarted = callId;
+    if (earlyAbort === callId) throw new Error('aborted before start');
     const ac = new AbortController();
     inflight.set(callId, ac);
     try {
@@ -26,7 +30,7 @@ export function startSession({ turns, tools = {}, approve = () => true, deltaDel
   const abort = (callId) => {
     const ac = inflight.get(callId);
     if (ac) ac.abort();
-    else earlyAborts.add(callId);
+    else if (callId > lastStarted) earlyAbort = callId;
   };
   const config = { turns, delta_delay_ms: deltaDelayMs, event_capacity: eventCapacity };
   const session = native.Session.start(JSON.stringify(config), callTool, ask, abort);

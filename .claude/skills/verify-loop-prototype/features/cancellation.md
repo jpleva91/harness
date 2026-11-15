@@ -37,4 +37,6 @@ Preconditions:
 - A cancel that lands in the middle of a loop step is seen by the next step, so one callback can start and be aborted at once.
 - `ms after cancel` includes the scenario's own 5 ms settle sleep in Node. The scenario fails above 100 ms.
 - `timeout-tool` in Node proves the tool was told to stop, not that it stopped: its promise never settles. Node cannot stop a callback that ignores the signal, and neither binding can interrupt a callback that blocks the thread.
+- `abort-immediate` discriminates in Python only: it fails there without the wrapper's early-abort guard. In Node the call was always delivered before its abort on the test machine, so the scenario passes with or without the guard. The Node guard is unproven.
+- `drop-session` leaves a native read pending on purpose, because a pending read keeps the event receiver alive; the scenario fails if the session's drop does not cancel.
 - `drop-session` has no Node scenario: Node frees the session only at garbage collection, which a script cannot time. The core behavior is covered by the replay test `dropped_session_aborts_the_host_call_in_flight`.
