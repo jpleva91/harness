@@ -5,7 +5,7 @@
 - **Wedge**: the one primary reason an agent builder picks this harness, used to settle scope arguments. The wedge is *safe in-process* ([#5](https://github.com/jpleva91/harness/issues/5)).
 - **In-process**: the loop, model calls, context and permission decisions run inside the builder's process. Tool execution may run in sandboxed child processes that the harness manages.
 - **Ambient state**: anything the harness would read without being handed it: home directory, global config, environment variables, memory files. The harness reads none.
-- **Safe**: deny unless allowed, sandbox on, network off, until the builder loosens it. The harness contains a misbehaving or prompt-injected agent and keeps tenants' state apart. It is not a boundary against hostile tenant code.
+- **Safe**: deny unless allowed, sandbox on, network off, until the builder loosens it. The harness contains a misbehaving or prompt-injected agent and keeps the contents of tenants' files apart; file metadata is not covered (see Reach). It is not a boundary against hostile tenant code.
 - **Durable approvals**: approvals and sessions that survive a crash or resume. First claim on v1 scope after the wedge.
 - **Core**: the Rust implementation of the harness. It holds all behavior: loop, permissions, sandbox, sessions and context. Internal in v1.
 - **Binding**: the TypeScript or Python package a builder imports. It is thin: typed wrappers over the core plus the builder's own callbacks.
@@ -18,6 +18,5 @@
 - **Permission rule**: plain data the builder gives a session: a tool name, an optional matcher on that tool's arguments, and an outcome. The core evaluates rules. File tools match path globs; the shell tool matches only as a whole. The builder may add or remove rules mid-session; a change applies to later tool calls only.
 - **Outcome**: what the rules say about one tool call: allow, ask or deny. Deny beats ask beats allow, whatever the order of the rules. No matching rule is a deny. Ask raises an approval. A deny goes back to the model as a tool result.
 - **Sandbox**: the operating-system confinement a session's built-in shell and file tools run under. It is a fixed ceiling set in the session's config: no rule and no approval widens it. If it cannot be set up, the session is not created.
-- **Reach**: what the sandbox lets a tool touch. By default: read and write in the workspace and a private temp directory, read-only on the system paths the builder lists, nothing else, and no network.
-- **Protected path**: a path inside the workspace that the sandbox keeps read-only. By default `.git` and the harness config, so the agent cannot commit until the builder changes the list.
+- **Reach**: what the sandbox lets a tool touch. By default: read and write in the workspace and a private temp directory, read-only on the system paths the builder lists, nothing else, and no network. Reach covers file contents, not metadata: a tool can still change the mode, times and extended attributes of files its user owns.
 - **Builder tool**: a tool the builder defines. It runs in the builder's process, outside the sandbox, and is governed by permission rules only.
