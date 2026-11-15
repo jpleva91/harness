@@ -119,9 +119,12 @@ async fn hosted<T>(
             None => std::future::pending().await,
         }
     };
+    // Cancel is looked at first: a poll that begins after cancel must not take a host result
+    // and go on to start the next host call (Loop.tla, NoHostCallStartsAfterCancel).
     tokio::select! {
-        r = fut => Hosted::Done(r),
+        biased;
         _ = cancel.cancelled() => { host.abort(call_id); Hosted::Cancelled }
+        r = fut => Hosted::Done(r),
         _ = sleep => { host.abort(call_id); Hosted::TimedOut }
     }
 }
@@ -144,8 +147,9 @@ async fn run(config: Config, host: Arc<dyn Host>, h: &Handle, tx: &mpsc::Sender<
     let cancel = &h.cancel;
     let emit = |e: Event| async move {
         tokio::select! {
-            r = tx.send(e) => r.ok(),
+            biased;
             _ = cancel.cancelled() => None,
+            r = tx.send(e) => r.ok(),
         }
     };
     emit(Event::RunStarted).await?;
@@ -163,8 +167,9 @@ async fn run(config: Config, host: Arc<dyn Host>, h: &Handle, tx: &mpsc::Sender<
         for text in &turn.text {
             if config.delta_delay_ms > 0 {
                 tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(config.delta_delay_ms)) => {}
+                    biased;
                     _ = cancel.cancelled() => return None,
+                    _ = tokio::time::sleep(Duration::from_millis(config.delta_delay_ms)) => {}
                 }
             }
             emit(Event::TextDelta { turn: n, text: text.clone() }).await?;
