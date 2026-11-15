@@ -1,0 +1,6 @@
+target/
+node_modules/
+*.node
+.venv/
+__pycache__/
+*.so

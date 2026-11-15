@@ -1,0 +1,32 @@
+// PROTOTYPE. Thin wrapper over the native binding: JSON in and out, AbortSignal per host call.
+import { createRequire } from 'node:module';
+const native = createRequire(import.meta.url)('./harness.node');
+
+export function startSession({ turns, tools = {}, approve = () => true, deltaDelayMs = 0, eventCapacity = 64 }) {
+  const inflight = new Map(); // call id -> AbortController
+  const hosted = (fn) => async (callId, name, inputJson) => {
+    const ac = new AbortController();
+    inflight.set(callId, ac);
+    try {
+      return await fn(name, JSON.parse(inputJson), ac.signal);
+    } finally {
+      inflight.delete(callId);
+    }
+  };
+  const callTool = hosted(async (name, input, signal) => {
+    const tool = tools[name];
+    if (!tool) throw new Error(`unknown tool ${name}`);
+    return JSON.stringify(await tool(input, signal));
+  });
+  const ask = hosted(async (name, input, signal) => Boolean(await approve({ name, input }, signal)));
+  const abort = (callId) => inflight.get(callId)?.abort();
+  const config = { turns, delta_delay_ms: deltaDelayMs, event_capacity: eventCapacity };
+  const session = native.Session.start(JSON.stringify(config), callTool, ask, abort);
+  return {
+    async *events() {
+      for (let e; (e = await session.nextEvent()) !== null; ) yield JSON.parse(e);
+    },
+    cancel: () => session.cancel(),
+    steer: (text) => session.steer(text),
+  };
+}
