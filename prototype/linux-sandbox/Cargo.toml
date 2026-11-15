@@ -1,0 +1,15 @@
+# PROTOTYPE. Throwaway probe for issue #20. Not harness code.
+[package]
+name = "sbx-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "sbx"
+path = "src/main.rs"
+
+[dependencies]
+landlock = "0.4"
+seccompiler = "0.5"
+libc = "0.2"
