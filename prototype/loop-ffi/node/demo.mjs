@@ -4,13 +4,14 @@ import { startSession } from './harness.mjs';
 
 const results = [];
 const check = (name, ok, detail = '') => {
-  results.push(ok);
+  results.push(Boolean(ok));
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
 };
 const drain = async (s, onEvent) => {
   const out = [];
   for await (const e of s.events()) {
     out.push(e);
+    if (process.env.TRACE) console.log('  event', JSON.stringify(e));
     await onEvent?.(e, s);
   }
   return out;

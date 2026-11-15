@@ -1,5 +1,7 @@
 """PROTOTYPE. The same scenarios as node/demo.mjs, against CPython and asyncio."""
 import asyncio
+import json
+import os
 import sys
 import time
 
@@ -18,6 +20,8 @@ async def drain(s, on_event=None):
     out = []
     async for e in s.events():
         out.append(e)
+        if os.environ.get("TRACE"):
+            print("  event", json.dumps(e, separators=(",", ":")))
         if on_event:
             await on_event(e)
     return out
